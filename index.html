@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Every Day Goal Calendar</title>
+    <style>
+        :root {
+            /* Default Soft Summer Rose Gold */
+            /* We now use this variable for everything so the JS can update it easily */
+            --bubble-filled: #c48a95; 
+            
+            --bg-color: #f4f4f4;
+            --text-color: #5a5a5a; 
+            --bubble-empty: #d1d1d1;
+            
+            /* Automatically make the hover/border colors match the filled color */
+            --bubble-hover: var(--bubble-filled);
+            --bubble-filled-border: var(--bubble-filled);
+        }
+
+        body {
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        h1 {
+            font-weight: 300;
+            letter-spacing: 2px;
+            margin-bottom: 20px;
+            text-transform: uppercase;
+            font-size: 1.5rem;
+            cursor: text;
+            border-bottom: 1px dashed transparent;
+            transition: border-color 0.2s;
+            min-width: 100px;
+            text-align: center;
+        }
+
+        h1:hover, h1:focus {
+            outline: none;
+            border-bottom-color: var(--bubble-hover);
+        }
+
+        .controls {
+            margin-top: 30px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center;
+        }
+
+        button {
+            background: white;
+            border: 1px solid var(--bubble-empty);
+            padding: 8px 16px;
+            cursor: pointer;
+            color: var(--text-color);
+            border-radius: 4px;
+            font-size: 0.8rem;
+            transition: all 0.2s;
+        }
+
+        button:hover {
+            background: var(--bubble-filled);
+            color: white;
+            border-color: var(--bubble-filled);
+        }
+
+        /* NEW: Style for the Color Picker */
+        input[type="color"] {
+            border: 1px solid var(--bubble-empty);
+            width: 40px;
+            height: 35px;
+            padding: 0;
+            background: white;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        .calendar-container {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 10px;
+            max-width: 800px;
+            width: 100%;
+            overflow-x: auto;
+            padding-bottom: 10px;
+        }
+
+        .month-column {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .month-label {
+            font-size: 0.8rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+
+        .bubble {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background-color: white;
+            border: 2px solid var(--bubble-empty);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .bubble:hover {
+            border-color: var(--bubble-hover);
+        }
+
+        .bubble.filled {
+            background-color: var(--bubble-filled);
+            border-color: var(--bubble-filled-border);
+            /* Adds a slight dim effect to the border so it pops */
+            filter: brightness(0.95); 
+        }
+
+        @media (max-width: 600px) {
+            .calendar-container { gap: 5px; }
+            .bubble { width: 16px; height: 16px; }
+            .month-label { font-size: 0.6rem; }
+        }
+
+        @media print {
+            .controls { display: none !important; }
+            body { 
+                zoom: 70%; 
+                -webkit-print-color-adjust: exact; 
+                print-color-adjust: exact;
+                background-color: white; 
+            }
+            .calendar-container {
+                max-width: 100%;
+                width: 100%;
+                overflow: visible;
+            }
+            h1 { margin-bottom: 20px !important; border: none; }
+            h1::after {
+                content: " - 2025 Record"; 
+                font-size: 1rem;
+                color: #999;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <h1 id="appTitle" contenteditable="true" spellcheck="false">Every Day Goal Calendar</h1>
+
+    <div class="calendar-container" id="calendar"></div>
+
+    <div class="controls">
+        <input type="color" id="colorPicker" value="#c48a95" title="Change Bubble Color">
+        
+        <button onclick="downloadData()">Save Backup</button>
+        <button onclick="triggerUpload()">Load Backup</button>
+        <button onclick="resetCalendar()">Reset for New Year</button>
+        <input type="file" id="fileInput" style="display: none;" onchange="loadData(this)">
+    </div>
+
+    <script>
+        const calendarContainer = document.getElementById('calendar');
+        const titleElement = document.getElementById('appTitle');
+        const colorPicker = document.getElementById('colorPicker');
+        const months = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
+        
+        let savedData = JSON.parse(localStorage.getItem('goalCalendarData')) || {};
+        
+        // 1. Load Title
+        const savedTitle = localStorage.getItem('goalCalendarTitle');
+        if (savedTitle) {
+            titleElement.innerText = savedTitle;
+        }
+
+        // 2. Load Color
+        const savedColor = localStorage.getItem('goalCalendarColor');
+        if (savedColor) {
+            // If we have a saved color, update the variable and the picker input
+            document.documentElement.style.setProperty('--bubble-filled', savedColor);
+            colorPicker.value = savedColor;
+        }
+
+        // --- Event Listeners ---
+
+        // Save Title on type
+        titleElement.addEventListener('input', () => {
+            localStorage.setItem('goalCalendarTitle', titleElement.innerText);
+        });
+
+        // Save Color on pick
+        colorPicker.addEventListener('input', (e) => {
+            const newColor = e.target.value;
+            // Update CSS Variable instantly
+            document.documentElement.style.setProperty('--bubble-filled', newColor);
+            // Save to memory
+            localStorage.setItem('goalCalendarColor', newColor);
+        });
+
+        function renderCalendar() {
+            calendarContainer.innerHTML = ''; 
+            
+            months.forEach((month, index) => {
+                const column = document.createElement('div');
+                column.className = 'month-column';
+
+                const label = document.createElement('div');
+                label.className = 'month-label';
+                label.innerText = month;
+                column.appendChild(label);
+
+                const daysInMonth = new Date(2025, index + 1, 0).getDate();
+
+                for (let day = 1; day <= daysInMonth; day++) {
+                    const bubble = document.createElement('div');
+                    bubble.className = 'bubble';
+                    const bubbleId = `${index}-${day}`;
+                    
+                    if (savedData[bubbleId]) {
+                        bubble.classList.add('filled');
+                    }
+
+                    bubble.addEventListener('click', () => {
+                        bubble.classList.toggle('filled');
+                        updateData(bubbleId, bubble.classList.contains('filled'));
+                    });
+
+                    column.appendChild(bubble);
+                }
+                calendarContainer.appendChild(column);
+            });
+        }
+
+        function updateData(id, isFilled) {
+            if (isFilled) savedData[id] = true;
+            else delete savedData[id];
+            localStorage.setItem('goalCalendarData', JSON.stringify(savedData));
+        }
+
+        function resetCalendar() {
+            if (confirm("Are you sure? This will erase all your bubbles.")) {
+                localStorage.removeItem('goalCalendarData');
+                savedData = {};
+                renderCalendar();
+            }
+        }
+
+        // --- BACKUP FUNCTIONS ---
+
+        function downloadData() {
+            const backupObject = {
+                title: localStorage.getItem('goalCalendarTitle') || "Every Day",
+                color: localStorage.getItem('goalCalendarColor') || "#c48a95",
+                bubbles: savedData
+            };
+            
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupObject));
+            const downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href", dataStr);
+            
+            const date = new Date().toISOString().slice(0, 10);
+            downloadAnchorNode.setAttribute("download", `calendar_backup_${date}.json`);
+            
+            document.body.appendChild(downloadAnchorNode);
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+        }
+
+        function triggerUpload() {
+            document.getElementById('fileInput').click();
+        }
+
+        function loadData(input) {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const content = JSON.parse(e.target.result);
+                    
+                    // Handle Bubbles
+                    if (content.bubbles) savedData = content.bubbles;
+                    else savedData = content; // Old format support
+
+                    // Handle Title
+                    if (content.title) {
+                        localStorage.setItem('goalCalendarTitle', content.title);
+                        titleElement.innerText = content.title;
+                    }
+
+                    // Handle Color
+                    if (content.color) {
+                        localStorage.setItem('goalCalendarColor', content.color);
+                        document.documentElement.style.setProperty('--bubble-filled', content.color);
+                        colorPicker.value = content.color;
+                    }
+
+                    localStorage.setItem('goalCalendarData', JSON.stringify(savedData));
+                    renderCalendar(); 
+                    alert("Calendar restored successfully!");
+                } catch (err) {
+                    alert("Error loading file.");
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        renderCalendar();
+    </script>
+</body>
+</html>

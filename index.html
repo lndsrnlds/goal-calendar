@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Every Day Goal Calendar</title>
+    <style>
+        :root {
+            /* Default Colors */
+            --bubble-filled: #c48a95; 
+            --bg-color: #f4f4f4;
+            --text-color: #5a5a5a; 
+            --bubble-empty: #d1d1d1;
+            
+            /* Derived Colors */
+            --bubble-hover: var(--bubble-filled);
+            --bubble-filled-border: var(--bubble-filled);
+        }
+
+        body {
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        /* Title Styling */
+        h1 {
+            font-weight: 300;
+            letter-spacing: 2px;
+            margin-bottom: 20px;
+            text-transform: uppercase;
+            font-size: 1.5rem;
+            cursor: text;
+            border-bottom: 1px dashed transparent;
+            transition: border-color 0.2s;
+            min-width: 100px;
+            text-align: center;
+        }
+
+        h1:hover, h1:focus {
+            outline: none;
+            border-bottom-color: var(--bubble-hover);
+        }
+
+        /* Controls Row */
+        .controls {
+            margin-top: 30px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Buttons & Inputs */
+        button, select {
+            background: white;
+            border: 1px solid var(--bubble-empty);
+            padding: 8px 16px;
+            cursor: pointer;
+            color: var(--text-color);
+            border-radius: 4px;
+            font-size: 0.8rem;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+
+        button:hover, select:hover {
+            background: var(--bubble-filled);
+            color: white;
+            border-color: var(--bubble-filled);
+        }
+
+        input[type="color"] {
+            border: 1px solid var(--bubble-empty);
+            width: 40px;
+            height: 35px;
+            padding: 0;
+            background: white;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        /* Calendar Grid */
+        .calendar-container {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 10px;
+            max-width: 800px;
+            width: 100%;
+            overflow-x: auto;
+            padding-bottom: 10px;
+        }
+
+        .month-column {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .month-label {
+            font-size: 0.8rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+
+        .bubble {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background-color: white;
+            border: 2px solid var(--bubble-empty);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .bubble:hover {
+            border-color: var(--bubble-hover);
+        }
+
+        .bubble.filled {
+            background-color: var(--bubble-filled);
+            border-color: var(--bubble-filled-border);
+            filter: brightness(0.95); 
+        }
+
+        @media (max-width: 600px) {
+            .calendar-container { gap: 5px; }
+            .bubble { width: 16px; height: 16px; }
+            .month-label { font-size: 0.6rem; }
+        }
+
+        /* Print Styles */
+        @media print {
+            .controls { display: none !important; }
+            body { 
+                zoom: 70%; 
+                -webkit-print-color-adjust: exact; 
+                print-color-adjust: exact;
+                background-color: white; 
+            }
+            .calendar-container {
+                max-width: 100%;
+                width: 100%;
+                overflow: visible;
+            }
+            h1 { margin-bottom: 20px !important; border: none; }
+            
+            /* We remove the hardcoded year label since the title might have it now */
+        }
+    </style>
+</head>
+<body>
+
+    <h1 id="appTitle" contenteditable="true" spellcheck="false">Every Day Goal Calendar</h1>
+
+    <div class="calendar-container" id="calendar"></div>
+
+    <div class="controls">
+        <select id="yearSelect" title="Change Year"></select>
+
+        <input type="color" id="colorPicker" value="#c48a95" title="Change Bubble Color">
+        
+        <button onclick="downloadData()">Backup Year</button>
+        <button onclick="triggerUpload()">Load Backup</button>
+        <button onclick="clearCurrentYear()">Clear This Year</button>
+        <input type="file" id="fileInput" style="display: none;" onchange="loadData(this)">
+    </div>
+
+    <script>
+        const calendarContainer = document.getElementById('calendar');
+        const titleElement = document.getElementById('appTitle');
+        const colorPicker = document.getElementById('colorPicker');
+        const yearSelect = document.getElementById('yearSelect');
+        
+        const months = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
+        
+        let currentYear = 2025; // Default start year
+        let savedData = {}; // This will hold bubbles for the *current* year only
+
+        // --- INITIALIZATION ---
+
+        function init() {
+            // 1. Run Migration (Move old generic data to 2025 bucket)
+            const legacyData = localStorage.getItem('goalCalendarData');
+            if (legacyData) {
+                console.log("Migrating legacy data to 2025...");
+                localStorage.setItem('goalCalendarData_2025', legacyData);
+                localStorage.removeItem('goalCalendarData');
+            }
+
+            // 2. Populate Year Dropdown (2023 - 2030)
+            const startYear = 2023;
+            const endYear = 2030;
+            for (let y = startYear; y <= endYear; y++) {
+                const option = document.createElement('option');
+                option.value = y;
+                option.innerText = y;
+                if (y === currentYear) option.selected = true;
+                yearSelect.appendChild(option);
+            }
+
+            // 3. Load Global Settings (Title & Color)
+            const savedTitle = localStorage.getItem('goalCalendarTitle');
+            if (savedTitle) titleElement.innerText = savedTitle;
+
+            const savedColor = localStorage.getItem('goalCalendarColor');
+            if (savedColor) {
+                document.documentElement.style.setProperty('--bubble-filled', savedColor);
+                colorPicker.value = savedColor;
+            }
+
+            // 4. Load Data for the default year
+            loadYearData(currentYear);
+        }
+
+        // --- CORE LOGIC ---
+
+        // Switch the app to display a specific year
+        function loadYearData(year) {
+            currentYear = parseInt(year);
+            
+            // Fetch data specifically for this year (e.g., 'goalCalendarData_2026')
+            savedData = JSON.parse(localStorage.getItem(`goalCalendarData_${currentYear}`)) || {};
+            
+            renderCalendar();
+        }
+
+        function renderCalendar() {
+            calendarContainer.innerHTML = ''; 
+            
+            months.forEach((month, index) => {
+                const column = document.createElement('div');
+                column.className = 'month-column';
+
+                const label = document.createElement('div');
+                label.className = 'month-label';
+                label.innerText = month;
+                column.appendChild(label);
+
+                // Calculate days based on the CURRENTLY SELECTED year
+                const daysInMonth = new Date(currentYear, index + 1, 0).getDate();
+
+                for (let day = 1; day <= daysInMonth; day++) {
+                    const bubble = document.createElement('div');
+                    bubble.className = 'bubble';
+                    const bubbleId = `${index}-${day}`;
+                    
+                    if (savedData[bubbleId]) {
+                        bubble.classList.add('filled');
+                    }
+
+                    bubble.addEventListener('click', () => {
+                        bubble.classList.toggle('filled');
+                        updateData(bubbleId, bubble.classList.contains('filled'));
+                    });
+
+                    column.appendChild(bubble);
+                }
+                calendarContainer.appendChild(column);
+            });
+        }
+
+        function updateData(id, isFilled) {
+            if (isFilled) savedData[id] = true;
+            else delete savedData[id];
+            
+            // Save to the YEAR-SPECIFIC bucket
+            localStorage.setItem(`goalCalendarData_${currentYear}`, JSON.stringify(savedData));
+        }
+
+        // --- EVENT LISTENERS ---
+
+        yearSelect.addEventListener('change', (e) => {
+            loadYearData(e.target.value);
+        });
+
+        titleElement.addEventListener('input', () => {
+            localStorage.setItem('goalCalendarTitle', titleElement.innerText);
+        });
+
+        colorPicker.addEventListener('input', (e) => {
+            const newColor = e.target.value;
+            document.documentElement.style.setProperty('--bubble-filled', newColor);
+            localStorage.setItem('goalCalendarColor', newColor);
+        });
+
+        // --- BUTTON ACTIONS ---
+
+        function clearCurrentYear() {
+            if (confirm(`Are you sure? This will erase all data for ${currentYear}.`)) {
+                localStorage.removeItem(`goalCalendarData_${currentYear}`);
+                savedData = {};
+                renderCalendar();
+            }
+        }
+
+        function downloadData() {
+            const backupObject = {
+                year: currentYear,
+                title: localStorage.getItem('goalCalendarTitle') || "Every Day",
+                color: localStorage.getItem('goalCalendarColor') || "#c48a95",
+                bubbles: savedData
+            };
+            
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupObject));
+            const downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href", dataStr);
+            
+            // Filename now includes the year (e.g., "calendar_backup_2025.json")
+            downloadAnchorNode.setAttribute("download", `calendar_backup_${currentYear}.json`);
+            
+            document.body.appendChild(downloadAnchorNode);
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+        }
+
+        function triggerUpload() {
+            document.getElementById('fileInput').click();
+        }
+
+        function loadData(input) {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const content = JSON.parse(e.target.result);
+                    
+                    // Restore Global Settings
+                    if (content.title) {
+                        localStorage.setItem('goalCalendarTitle', content.title);
+                        titleElement.innerText = content.title;
+                    }
+                    if (content.color) {
+                        localStorage.setItem('goalCalendarColor', content.color);
+                        document.documentElement.style.setProperty('--bubble-filled', content.color);
+                        colorPicker.value = content.color;
+                    }
+
+                    // Restore Bubbles
+                    // If the backup file specifies a year, we save it to that year's bucket
+                    let targetYear = content.year || currentYear;
+                    
+                    // If loading an OLD backup (no year), assume it's for the currently selected year
+                    let bubblesToLoad = content.bubbles || content; 
+
+                    localStorage.setItem(`goalCalendarData_${targetYear}`, JSON.stringify(bubblesToLoad));
+                    
+                    // If we just loaded data for a different year, switch to it so the user sees it
+                    if (targetYear !== currentYear) {
+                        yearSelect.value = targetYear;
+                        loadYearData(targetYear);
+                        alert(`Loaded backup for ${targetYear}!`);
+                    } else {
+                        loadYearData(currentYear);
+                        alert(`Loaded backup for ${currentYear}!`);
+                    }
+
+                } catch (err) {
+                    alert("Error loading file.");
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        // Start the app
+        init();
+
+    </script>
+</body>
+</html>

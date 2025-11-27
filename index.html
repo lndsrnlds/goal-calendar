@@ -120,6 +120,7 @@
             border: 2px solid var(--bubble-empty);
             cursor: pointer;
             transition: all 0.2s ease;
+            position: relative; /* Needed for tooltips or effects */
         }
 
         .bubble:hover {
@@ -130,6 +131,16 @@
             background-color: var(--bubble-filled);
             border-color: var(--bubble-filled-border);
             filter: brightness(0.95); 
+        }
+
+        /* --- NEW: TODAY HIGHLIGHT --- */
+        .bubble.today {
+            /* 1. Make the border match your chosen color */
+            border-color: var(--bubble-filled);
+            /* 2. Make it slightly thicker */
+            border-width: 2px;
+            /* 3. Add a glow effect using your chosen color */
+            box-shadow: 0 0 6px var(--bubble-filled);
         }
 
         @media (max-width: 600px) {
@@ -154,19 +165,22 @@
             }
             h1 { margin-bottom: 20px !important; border: none; }
             
-            /* We remove the hardcoded year label since the title might have it now */
+            /* Hide the glow on print so it looks clean */
+            .bubble.today {
+                box-shadow: none;
+                border-width: 2px; /* We keep the border but remove the glow */
+            }
         }
     </style>
 </head>
 <body>
 
-    <h1 id="appTitle" contenteditable="true" spellcheck="false">Every Day Goal Calendar</h1>
+    <h1 id="appTitle" contenteditable="true" spellcheck="false">Every Day</h1>
 
     <div class="calendar-container" id="calendar"></div>
 
     <div class="controls">
         <select id="yearSelect" title="Change Year"></select>
-
         <input type="color" id="colorPicker" value="#c48a95" title="Change Bubble Color">
         
         <button onclick="downloadData()">Backup Year</button>
@@ -183,21 +197,18 @@
         
         const months = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
         
-        let currentYear = 2025; // Default start year
-        let savedData = {}; // This will hold bubbles for the *current* year only
-
-        // --- INITIALIZATION ---
+        let currentYear = 2025; 
+        let savedData = {}; 
 
         function init() {
-            // 1. Run Migration (Move old generic data to 2025 bucket)
+            // Migration for old data
             const legacyData = localStorage.getItem('goalCalendarData');
             if (legacyData) {
-                console.log("Migrating legacy data to 2025...");
                 localStorage.setItem('goalCalendarData_2025', legacyData);
                 localStorage.removeItem('goalCalendarData');
             }
 
-            // 2. Populate Year Dropdown (2023 - 2030)
+            // Populate Year Dropdown
             const startYear = 2023;
             const endYear = 2030;
             for (let y = startYear; y <= endYear; y++) {
@@ -208,7 +219,7 @@
                 yearSelect.appendChild(option);
             }
 
-            // 3. Load Global Settings (Title & Color)
+            // Load Settings
             const savedTitle = localStorage.getItem('goalCalendarTitle');
             if (savedTitle) titleElement.innerText = savedTitle;
 
@@ -218,25 +229,28 @@
                 colorPicker.value = savedColor;
             }
 
-            // 4. Load Data for the default year
             loadYearData(currentYear);
         }
 
-        // --- CORE LOGIC ---
-
-        // Switch the app to display a specific year
         function loadYearData(year) {
             currentYear = parseInt(year);
-            
-            // Fetch data specifically for this year (e.g., 'goalCalendarData_2026')
             savedData = JSON.parse(localStorage.getItem(`goalCalendarData_${currentYear}`)) || {};
-            
             renderCalendar();
         }
 
         function renderCalendar() {
             calendarContainer.innerHTML = ''; 
             
+            // --- NEW: Calculate "Today" in CST ---
+            const now = new Date();
+            // This converts the user's browser time to CST string
+            const cstDateString = now.toLocaleDateString("en-US", {timeZone: "America/Chicago"});
+            const cstDate = new Date(cstDateString);
+            
+            const todayDay = cstDate.getDate();
+            const todayMonth = cstDate.getMonth(); // 0-11
+            const todayYear = cstDate.getFullYear();
+
             months.forEach((month, index) => {
                 const column = document.createElement('div');
                 column.className = 'month-column';
@@ -246,7 +260,6 @@
                 label.innerText = month;
                 column.appendChild(label);
 
-                // Calculate days based on the CURRENTLY SELECTED year
                 const daysInMonth = new Date(currentYear, index + 1, 0).getDate();
 
                 for (let day = 1; day <= daysInMonth; day++) {
@@ -254,8 +267,16 @@
                     bubble.className = 'bubble';
                     const bubbleId = `${index}-${day}`;
                     
+                    // Check if filled
                     if (savedData[bubbleId]) {
                         bubble.classList.add('filled');
+                    }
+
+                    // --- NEW: Check if this bubble is TODAY ---
+                    // We only highlight if the Calendar Year matches the Current CST Year
+                    if (currentYear === todayYear && index === todayMonth && day === todayDay) {
+                        bubble.classList.add('today');
+                        bubble.title = "Today"; // Adds a tooltip if you hover for a second
                     }
 
                     bubble.addEventListener('click', () => {
@@ -272,13 +293,10 @@
         function updateData(id, isFilled) {
             if (isFilled) savedData[id] = true;
             else delete savedData[id];
-            
-            // Save to the YEAR-SPECIFIC bucket
             localStorage.setItem(`goalCalendarData_${currentYear}`, JSON.stringify(savedData));
         }
 
-        // --- EVENT LISTENERS ---
-
+        // --- Event Listeners ---
         yearSelect.addEventListener('change', (e) => {
             loadYearData(e.target.value);
         });
@@ -293,8 +311,7 @@
             localStorage.setItem('goalCalendarColor', newColor);
         });
 
-        // --- BUTTON ACTIONS ---
-
+        // --- Buttons ---
         function clearCurrentYear() {
             if (confirm(`Are you sure? This will erase all data for ${currentYear}.`)) {
                 localStorage.removeItem(`goalCalendarData_${currentYear}`);
@@ -310,14 +327,10 @@
                 color: localStorage.getItem('goalCalendarColor') || "#c48a95",
                 bubbles: savedData
             };
-            
             const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupObject));
             const downloadAnchorNode = document.createElement('a');
             downloadAnchorNode.setAttribute("href", dataStr);
-            
-            // Filename now includes the year (e.g., "calendar_backup_2025.json")
             downloadAnchorNode.setAttribute("download", `calendar_backup_${currentYear}.json`);
-            
             document.body.appendChild(downloadAnchorNode);
             downloadAnchorNode.click();
             downloadAnchorNode.remove();
@@ -334,8 +347,6 @@
             reader.onload = function(e) {
                 try {
                     const content = JSON.parse(e.target.result);
-                    
-                    // Restore Global Settings
                     if (content.title) {
                         localStorage.setItem('goalCalendarTitle', content.title);
                         titleElement.innerText = content.title;
@@ -345,17 +356,9 @@
                         document.documentElement.style.setProperty('--bubble-filled', content.color);
                         colorPicker.value = content.color;
                     }
-
-                    // Restore Bubbles
-                    // If the backup file specifies a year, we save it to that year's bucket
                     let targetYear = content.year || currentYear;
-                    
-                    // If loading an OLD backup (no year), assume it's for the currently selected year
                     let bubblesToLoad = content.bubbles || content; 
-
                     localStorage.setItem(`goalCalendarData_${targetYear}`, JSON.stringify(bubblesToLoad));
-                    
-                    // If we just loaded data for a different year, switch to it so the user sees it
                     if (targetYear !== currentYear) {
                         yearSelect.value = targetYear;
                         loadYearData(targetYear);
@@ -364,7 +367,6 @@
                         loadYearData(currentYear);
                         alert(`Loaded backup for ${currentYear}!`);
                     }
-
                 } catch (err) {
                     alert("Error loading file.");
                 }
@@ -372,9 +374,7 @@
             reader.readAsText(file);
         }
 
-        // Start the app
         init();
-
     </script>
 </body>
 </html>
